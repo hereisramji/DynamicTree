@@ -61,7 +61,8 @@ export const cellPopulations: { [key: string]: TreeNode } = {
     ],
     isExpanded: true,
     isVisible: true,
-    children: []
+    children: [],
+    findingText: 'γδT cells show increased expression of CD57 and EOMES.'
   },
   'tcr-alpha-beta': {
     id: 'tcr-alpha-beta',

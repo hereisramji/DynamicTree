@@ -20,6 +20,7 @@ export interface TreeNode {
   isExpanded?: boolean;
   isVisible?: boolean;
   isSatisfied?: boolean;
+  findingText?: string;
 }
 
 export interface TreeState {
