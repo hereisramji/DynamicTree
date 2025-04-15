@@ -317,30 +317,41 @@ export const cellRelationships = [
   { parentId: 'naive-stem-like-cd8', childId: 'tscm-cd8' }
 ];
 
-// Helper function for buildCellTree to propagate parent markers
-function propagateParentMarkers(node: TreeNode, parentMarkers: MarkerExpression[] = []) {
-  // Combine parent markers and the node's own specific markers
-  // Use a Map to handle potential overrides or duplicates, prioritizing the node's own definition if IDs clash
+// Helper function for buildCellTree to propagate parent markers AND calculate nodeSpecificMarkers
+function processNodeMarkers(node: TreeNode, parentMarkers: MarkerExpression[] = []) {
+  // Store the original markers before they are combined with parent markers
+  const originalMarkers = [...node.markers]; 
+
+  // --- Marker Propagation (same as before) ---
   const combinedMarkerMap = new Map<number, MarkerExpression>();
   parentMarkers.forEach(marker => combinedMarkerMap.set(marker.markerId, marker));
-  node.markers.forEach(marker => combinedMarkerMap.set(marker.markerId, marker));
-  
-  // Update the node's markers with the full combined list
+  // Add/overwrite with node's own markers
+  originalMarkers.forEach(marker => combinedMarkerMap.set(marker.markerId, marker)); 
+  // Update the node's markers to the full combined list
   node.markers = Array.from(combinedMarkerMap.values());
+  // --- End Marker Propagation ---
+
+  // --- Calculate Node-Specific Markers ---
+  const parentMarkerIds = new Set(parentMarkers.map(m => m.markerId));
+  node.nodeSpecificMarkers = originalMarkers.filter(
+    // Keep original marker if its ID wasn't present in the parent's final marker list
+    marker => !parentMarkerIds.has(marker.markerId) 
+  );
+  // --- End Calculation ---
   
-  // Recursively process children
-  node.children.forEach(child => propagateParentMarkers(child, node.markers));
+  // Recursively process children, passing the *updated* full marker list
+  node.children.forEach(child => processNodeMarkers(child, node.markers));
 }
 
 // Function to build the tree from the cell populations and relationships
 export function buildCellTree(): TreeNode[] {
-  // Create a working copy of populations to avoid modifying the original export
-  const populations: { [key: string]: TreeNode } = JSON.parse(JSON.stringify(cellPopulations));
+  // Deep copy to avoid modifying the original cellPopulations object
+  const populations: { [key: string]: TreeNode } = JSON.parse(JSON.stringify(cellPopulations)); 
   const nodeMap = new Map<string, TreeNode>();
 
   // Populate the map and ensure children array is initialized
   for (const id in populations) {
-    populations[id].children = []; // Ensure children array is empty initially
+    populations[id].children = []; // Initialize children array
     nodeMap.set(id, populations[id]);
   }
 
@@ -348,9 +359,7 @@ export function buildCellTree(): TreeNode[] {
   for (const { parentId, childId } of cellRelationships) {
     const parent = nodeMap.get(parentId);
     const child = nodeMap.get(childId);
-
     if (parent && child) {
-      // Check if child is already present to avoid duplicates
       if (!parent.children.some(c => c.id === childId)) {
          parent.children.push(child);
       }
@@ -359,13 +368,13 @@ export function buildCellTree(): TreeNode[] {
     }
   }
 
-  // Find the root node(s) and propagate markers
+  // Find the root node(s) and process markers (propagation + node-specific calculation)
   const tree: TreeNode[] = [];
   const childIds = new Set(cellRelationships.map(r => r.childId));
   for (const id in populations) {
-    if (!childIds.has(id)) {
+    if (!childIds.has(id)) { // Found a root node
       const rootNode = populations[id];
-      propagateParentMarkers(rootNode); // Start marker propagation from the root
+      processNodeMarkers(rootNode); // Start marker processing from the root
       tree.push(rootNode);
     }
   }
@@ -375,9 +384,9 @@ export function buildCellTree(): TreeNode[] {
       return [tree[0]];
   } else if (tree.length > 0) {
       console.warn("Multiple root nodes found or root node is not named 'root'. Returning all top-level nodes.", tree);
-      return tree; // Fallback: return all found top-level nodes
+      return tree;
   } else {
       console.error("Could not build tree structure. No root node found.");
-      return []; // Return empty if no root is found
+      return [];
   }
 } 

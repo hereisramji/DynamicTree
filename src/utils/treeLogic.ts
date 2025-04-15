@@ -2,33 +2,33 @@ import { TreeNode, MarkerExpression } from '../types/types';
 import { markers } from '../data/markers'; // Import marker data
 
 // Create a lookup map for marker IDs to names for efficient access
-const markerNameMap = new Map<number, string>();
+export const markerNameMap = new Map<number, string>();
 markers.forEach(marker => {
   markerNameMap.set(marker.id, marker.name);
 });
 
-export const updateNodeVisibility = (
+// Renamed from updateNodeVisibility
+export const updateNodeSatisfaction = (
   node: TreeNode,
   selectedMarkers: Set<number>
 ): TreeNode => {
-  // Check if all markers required for THIS node's definition are selected in the panel
-  // This includes markers inherited from parents.
+  // Check if all markers required for THIS node (including inherited) are selected
   const hasRequiredMarkers = node.markers.every(({ markerId }) => 
     selectedMarkers.has(markerId)
   );
 
-  // Update children first, recursively applying the same logic
+  // Recursively update children first
   const updatedChildren = node.children.map((child) =>
-    updateNodeVisibility(child, selectedMarkers)
+    updateNodeSatisfaction(child, selectedMarkers)
   );
 
-  // Node is visible if its own required markers are selected in the panel.
-  // Children visibility is determined by their own marker requirements.
-  const isVisible = hasRequiredMarkers;
+  // Set the isSatisfied flag based on marker selection
+  const isSatisfied = hasRequiredMarkers;
 
   return {
     ...node,
-    isVisible,
+    isSatisfied, // Set the new flag
+    isVisible: true, // Keep node technically visible
     children: updatedChildren,
   };
 };
@@ -61,4 +61,4 @@ export const getMarkerExpressionString = (
       return `${name}${expression === 'positive' ? '⁺' : '⁻'}`;
     })
     .join(', ');
-}; 
+};

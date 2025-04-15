@@ -3,7 +3,7 @@ import { MarkerSelector } from './MarkerSelector';
 import { TreeNode } from './TreeNode';
 import { markers } from '../data/markers';
 import { buildCellTree } from '../data/cellPopulations';
-import { updateNodeVisibility, toggleNodeExpansion } from '../utils/treeLogic';
+import { updateNodeSatisfaction, toggleNodeExpansion } from '../utils/treeLogic';
 import { TreeNode as TreeNodeType } from '../types/types';
 import { TruncatedInfoPanel } from './TruncatedInfoPanel';
 
@@ -23,31 +23,29 @@ export const DynamicTree: React.FC = () => {
   // Store previous selections before simulation
   const [preSimulationSelections, setPreSimulationSelections] = useState<Set<number> | null>(null);
 
-  // Effect to update tree visibility whenever selectedMarkers changes
+  // Effect to update tree satisfaction state whenever selectedMarkers changes
   useEffect(() => {
-    console.log('Selected markers changed, updating tree visibility:', selectedMarkers);
-    const updatedTree = treeNodes.map((node) =>
-      updateNodeVisibility(node, selectedMarkers)
+    console.log('Selected markers changed, updating tree satisfaction:', selectedMarkers);
+    // Use functional update and the new satisfaction logic
+    setTreeNodes(currentTree => 
+      currentTree.map(node => updateNodeSatisfaction(node, selectedMarkers))
     );
-    console.log('Tree after visibility update:', JSON.stringify(updatedTree, null, 2));
-    // Use functional update to avoid stale state issues if updates happen quickly
-    setTreeNodes(currentTree => currentTree.map(node => updateNodeVisibility(node, selectedMarkers)));
-  }, [selectedMarkers]); // Rerun visibility logic when selectedMarkers changes
+  }, [selectedMarkers]); // Rerun satisfaction logic when selectedMarkers changes
 
   const handleMarkerToggle = useCallback(
     (markerId: number) => {
-      // Prevent toggling if simulation is active
       if (isSimulatingTruncated) return;
-
-      const newSelectedMarkers = new Set(selectedMarkers);
-      if (newSelectedMarkers.has(markerId)) {
-        newSelectedMarkers.delete(markerId);
-      } else {
-        newSelectedMarkers.add(markerId);
-      }
-      setSelectedMarkers(newSelectedMarkers);
+      setSelectedMarkers((currentSelected) => {
+        const newSelectedMarkers = new Set(currentSelected);
+        if (newSelectedMarkers.has(markerId)) {
+          newSelectedMarkers.delete(markerId);
+        } else {
+          newSelectedMarkers.add(markerId);
+        }
+        return newSelectedMarkers;
+      });
     },
-    [selectedMarkers, isSimulatingTruncated] // Include simulation state dependency
+    [isSimulatingTruncated]
   );
   
   const handleSimulationToggle = useCallback(() => {
@@ -122,6 +120,9 @@ export const DynamicTree: React.FC = () => {
                  node={node}
                  level={0} 
                  onToggle={handleNodeToggle}
+                 selectedMarkers={selectedMarkers}
+                 onMarkerToggle={handleMarkerToggle} 
+                 parentIsSatisfied={true}
                />
           ))}
         </div>

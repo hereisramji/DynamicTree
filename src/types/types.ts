@@ -14,9 +14,11 @@ export interface TreeNode {
   id: string;
   name: string;
   markers: MarkerExpression[];
+  nodeSpecificMarkers?: MarkerExpression[];
   children: TreeNode[];
   isExpanded?: boolean;
   isVisible?: boolean;
+  isSatisfied?: boolean;
 }
 
 export interface TreeState {
@@ -34,4 +36,7 @@ export interface TreeNodeProps {
   node: TreeNode;
   level: number;
   onToggle: (nodeId: string) => void;
+  selectedMarkers: Set<number>;
+  onMarkerToggle: (markerId: number) => void;
+  parentIsSatisfied: boolean;
 } 
