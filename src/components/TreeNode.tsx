@@ -29,15 +29,21 @@ export const TreeNode: React.FC<TreeNodeProps> = ({
   const checkboxLookClass = shouldDisableOwnCheckboxes ? 'text-gray-400 cursor-not-allowed' : 'text-primary-600 focus:ring-primary-500 cursor-pointer';
   const overallOpacityClass = shouldAppearGrey ? 'opacity-75' : ''; // Opacity based on own state
 
-  // Function to render checkboxes
-  const renderNodeSpecificMarkersAsCheckboxes = () => {
-    if (!node.nodeSpecificMarkers?.length) return null;
+  // Render checkboxes based on LCA markers
+  const renderLcaMarkerCheckboxes = () => {
+    // Use the new lcaMarkerIds field
+    if (!node.lcaMarkerIds?.size) return null;
+    const lcaIdsArray = Array.from(node.lcaMarkerIds);
+
+    lcaIdsArray.sort((a, b) => a - b);
     
     return (
       <div className="ml-2 flex items-center flex-wrap gap-x-3 gap-y-1">
-        {node.nodeSpecificMarkers.map(({ markerId, expression }) => {
+        {lcaIdsArray.map((markerId) => {
           const name = markerNameMap.get(markerId) || `ID ${markerId}`;
-          const expressionSymbol = expression === 'positive' ? '⁺' : '⁻';
+          // Determine expression symbol based on current node's final list
+          const markerInfo = node.markers.find(m => m.markerId === markerId);
+          const expressionSymbol = markerInfo ? (markerInfo.expression === 'positive' ? '⁺' : '⁻') : ''; 
           const labelText = `${name}${expressionSymbol}`;
           const inputId = `node-${node.id}-marker-${markerId}`;
 
@@ -51,7 +57,6 @@ export const TreeNode: React.FC<TreeNodeProps> = ({
                 disabled={shouldDisableOwnCheckboxes} 
                 onChange={(e) => {
                   e.stopPropagation(); 
-                  // Toggle only if not disabled (attribute handles blocking click)
                   onMarkerToggle(markerId);
                 }}
                 className={`h-4 w-4 border-gray-300 rounded mr-1 ${checkboxLookClass}`}
@@ -61,7 +66,6 @@ export const TreeNode: React.FC<TreeNodeProps> = ({
                 className={`text-xs font-medium ${checkboxLabelClass}`}
                 onClick={(e) => { 
                   e.stopPropagation(); 
-                  // Toggle only if not disabled
                   if (!shouldDisableOwnCheckboxes) { 
                     onMarkerToggle(markerId);
                   }
@@ -101,11 +105,11 @@ export const TreeNode: React.FC<TreeNodeProps> = ({
         )}
         {/* Content Area */}
         <div className="flex-1"> 
-          {/* Name + Checkboxes Row */} 
+          {/* Name + LCA Checkboxes Row */} 
           <div className="flex items-center flex-wrap mb-1">
             {/* Text color based on OWN satisfaction */} 
             <span className={`font-medium mr-1 ${textClass}`}>{node.name}</span>
-            {renderNodeSpecificMarkersAsCheckboxes()} 
+            {renderLcaMarkerCheckboxes()} 
           </div>
           {/* Full Phenotype Row - Text color based on OWN satisfaction */} 
           <div className={`text-sm ${phenotypeTextClass}`}> 

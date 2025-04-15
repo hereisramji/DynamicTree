@@ -1,4 +1,5 @@
 import { TreeNode, MarkerExpression } from '../types/types';
+import { markers as allMarkers } from '../data/markers'; // Get full marker list
 
 // Define all cell populations from the Van Zelm panel
 // Ensure the keys match the node IDs
@@ -317,67 +318,170 @@ export const cellRelationships = [
   { parentId: 'naive-stem-like-cd8', childId: 'tscm-cd8' }
 ];
 
-// Helper function for buildCellTree to propagate parent markers AND calculate nodeSpecificMarkers
-function processNodeMarkers(node: TreeNode, parentMarkers: MarkerExpression[] = []) {
-  // Store the original markers before they are combined with parent markers
-  const originalMarkers = [...node.markers]; 
+// Keep track of the original markers defined for each node ID
+const originalNodeMarkersMap = new Map<string, MarkerExpression[]>();
+Object.entries(cellPopulations).forEach(([id, node]) => {
+  originalNodeMarkersMap.set(id, [...node.markers]); 
+});
 
-  // --- Marker Propagation (same as before) ---
+// Keep track of which nodes originally define each marker ID
+const markerDefiningNodesMap = new Map<number, string[]>();
+allMarkers.forEach(marker => markerDefiningNodesMap.set(marker.id, [])); // Initialize
+Object.entries(cellPopulations).forEach(([nodeId, node]) => {
+  // Use the original definition to map defining nodes
+  const originalMarkers = originalNodeMarkersMap.get(nodeId) || []; 
+  originalMarkers.forEach(({ markerId }) => {
+    markerDefiningNodesMap.get(markerId)?.push(nodeId);
+  });
+});
+
+// Helper function to propagate parent markers AND calculate nodeSpecificMarkers
+function processNodeMarkers(node: TreeNode, parentMarkers: MarkerExpression[] = []) {
+  const originalMarkers = originalNodeMarkersMap.get(node.id) || [];
   const combinedMarkerMap = new Map<number, MarkerExpression>();
   parentMarkers.forEach(marker => combinedMarkerMap.set(marker.markerId, marker));
-  // Add/overwrite with node's own markers
   originalMarkers.forEach(marker => combinedMarkerMap.set(marker.markerId, marker)); 
-  // Update the node's markers to the full combined list
   node.markers = Array.from(combinedMarkerMap.values());
-  // --- End Marker Propagation ---
-
-  // --- Calculate Node-Specific Markers ---
   const parentMarkerIds = new Set(parentMarkers.map(m => m.markerId));
   node.nodeSpecificMarkers = originalMarkers.filter(
-    // Keep original marker if its ID wasn't present in the parent's final marker list
     marker => !parentMarkerIds.has(marker.markerId) 
   );
-  // --- End Calculation ---
-  
-  // Recursively process children, passing the *updated* full marker list
   node.children.forEach(child => processNodeMarkers(child, node.markers));
 }
 
-// Function to build the tree from the cell populations and relationships
+// --- LCA Calculation Helpers ---
+
+// Helper to get all ancestors of a node up to the root
+function getAncestors(nodeId: string, parentMap: Map<string, string>): string[] {
+  const ancestors: string[] = [];
+  let currentId: string | undefined = nodeId;
+  while (currentId && parentMap.has(currentId)) { 
+    const parentId: string = parentMap.get(currentId)!; 
+    ancestors.push(parentId);
+    currentId = parentId;
+  }
+  return ancestors.reverse(); // root first
+}
+
+// REVISED Helper to find LCA for a set of node IDs
+function findLCA(nodeIds: string[], parentMap: Map<string, string>): string | null {
+  if (!nodeIds || nodeIds.length === 0) return null;
+  if (nodeIds.length === 1) return nodeIds[0]; // LCA of one node is itself
+
+  // Helper to get the full path from root to node
+  const getPath = (id: string): string[] => {
+    const ancestors = getAncestors(id, parentMap); // ['root', 'parent', ...]
+    // If node itself has no ancestors in the map, it might be the root
+    if (ancestors.length === 0 && !parentMap.has(id)) { 
+      return [id]; // Path is just the node itself if it's a root
+    }
+    return [...ancestors, id]; // Path from root to node: ['root', ..., 'parent', 'id']
+  };
+
+  const paths = nodeIds.map(getPath);
+
+  // Check for empty paths (could indicate orphaned nodes not linked from root)
+  if (paths.some(p => p.length === 0)) {
+      console.warn("Found empty path during LCA calculation for nodes:", nodeIds);
+      return null; 
+  }
+
+  // Find the shortest path length to determine comparison limit
+  const minLength = Math.min(...paths.map(p => p.length));
+
+  let lca: string | null = null;
+  // Iterate from root (level 0) downwards
+  for (let level = 0; level < minLength; level++) {
+    const ancestorAtLevel = paths[0][level]; // Get potential common ancestor from the first path
+    
+    // Check if all other paths have the same ancestor at this level
+    if (paths.every(p => p[level] === ancestorAtLevel)) {
+      lca = ancestorAtLevel; // It's a common ancestor, update LCA to this deeper node
+    } else {
+      break; // Paths diverged, the LCA was the common ancestor from the previous level
+    }
+  }
+
+  return lca; // Return the deepest common ancestor found
+}
+
+// --- End LCA Helpers ---
+
+// Function to build the tree
 export function buildCellTree(): TreeNode[] {
-  // Deep copy to avoid modifying the original cellPopulations object
   const populations: { [key: string]: TreeNode } = JSON.parse(JSON.stringify(cellPopulations)); 
   const nodeMap = new Map<string, TreeNode>();
+  const parentMap = new Map<string, string>(); // childId -> parentId
 
-  // Populate the map and ensure children array is initialized
+  // Initialize nodes and clear children/LCA set
   for (const id in populations) {
-    populations[id].children = []; // Initialize children array
+    populations[id].children = [];
+    // Ensure lcaMarkerIds is initialized as a Set
+    populations[id].lcaMarkerIds = new Set<number>(); 
     nodeMap.set(id, populations[id]);
   }
 
-  // Establish parent-child relationships
+  // Build tree structure and parent map
   for (const { parentId, childId } of cellRelationships) {
     const parent = nodeMap.get(parentId);
     const child = nodeMap.get(childId);
     if (parent && child) {
       if (!parent.children.some(c => c.id === childId)) {
          parent.children.push(child);
+         parentMap.set(childId, parentId);
       }
     } else {
       console.warn(`Relationship error: Parent (${parentId}) or Child (${childId}) not found.`);
     }
   }
 
-  // Find the root node(s) and process markers (propagation + node-specific calculation)
+  // Find root nodes
   const tree: TreeNode[] = [];
   const childIds = new Set(cellRelationships.map(r => r.childId));
+  const rootIds: string[] = []; // Keep track of root IDs
   for (const id in populations) {
-    if (!childIds.has(id)) { // Found a root node
+    if (!childIds.has(id)) { 
+      rootIds.push(id);
       const rootNode = populations[id];
-      processNodeMarkers(rootNode); // Start marker processing from the root
+      processNodeMarkers(rootNode); 
       tree.push(rootNode);
     }
   }
+
+  // Step 2: Calculate LCA for each marker and assign to the LCA node
+  console.log("Calculating LCAs for markers..."); // Log start
+  markerDefiningNodesMap.forEach((nodeIdsDefiningMarker, markerId) => {
+    if (nodeIdsDefiningMarker.length > 0) {
+      const markerName = allMarkers.find(m => m.id === markerId)?.name || `ID ${markerId}`;
+      console.log(`  Marker: ${markerName} (ID ${markerId}), Defined by: [${nodeIdsDefiningMarker.join(', ')}]`); // Log marker and defining nodes
+      const lcaNodeId = findLCA(nodeIdsDefiningMarker, parentMap);
+      console.log(`    Calculated LCA Node ID: ${lcaNodeId}`); // Log calculated LCA ID
+      if (lcaNodeId) {
+        const lcaNode = nodeMap.get(lcaNodeId);
+        if (lcaNode) {
+           if (!lcaNode.lcaMarkerIds) {
+             lcaNode.lcaMarkerIds = new Set<number>();
+           }
+           lcaNode.lcaMarkerIds.add(markerId);
+           console.log(`    Added marker ${markerId} to LCA node: ${lcaNode.name} (ID ${lcaNodeId})`); // Log successful addition
+        } else {
+           console.warn(`    LCA node ID ${lcaNodeId} not found in nodeMap for marker ${markerId}`);
+        }
+      } else {
+        console.warn(`    Could not find LCA for marker ${markerId} (nodes: ${nodeIdsDefiningMarker.join(', ')})`);
+      }
+    } else {
+        // Optional: Log markers that are not defined by any node
+        // const markerName = allMarkers.find(m => m.id === markerId)?.name || `ID ${markerId}`;
+        // console.log(`  Marker: ${markerName} (ID ${markerId}) is not defined by any node.`);
+    }
+  });
+  console.log("Finished calculating LCAs."); // Log end
+
+  // Log the final state of a few key nodes for inspection
+  console.log("Root LCA Markers:", nodeMap.get('root')?.lcaMarkerIds);
+  console.log("T-Cells LCA Markers:", nodeMap.get('t-cells')?.lcaMarkerIds);
+  console.log("TCRab LCA Markers:", nodeMap.get('tcr-alpha-beta')?.lcaMarkerIds);
 
   // Return the processed tree structure
   if (tree.length === 1 && tree[0].id === 'root') {

@@ -15,6 +15,7 @@ export interface TreeNode {
   name: string;
   markers: MarkerExpression[];
   nodeSpecificMarkers?: MarkerExpression[];
+  lcaMarkerIds?: Set<number>;
   children: TreeNode[];
   isExpanded?: boolean;
   isVisible?: boolean;
